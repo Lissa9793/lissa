@@ -1,9 +1,9 @@
 import logging
 import shelve
-import requests
-from collections import defaultdict
-from config import BOT_KEY
 
+
+from api import gpt
+from pyexpat.errors import messages
 from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -23,7 +23,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
     user = update.effective_user
     user_id = user.id
-    user_name = user.full.name
+    user_name = user.full_name
     pandora = shelve.open("pandora")
     if str(user_id) not in pandora.keys():
         user_data = {
@@ -66,23 +66,32 @@ async def store (update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    massage = update.message.text
-
+    user = update.effective_user
+    user_id = str(user.id)
+    pandora = shelve.open("pandora")
+    tokens = pandora[user_id]["tokens"]
+    if tokens > 0:
+        message = update.message.text
+        answer = gpt(message)
+    await update.message.reply_text(answer)
+else:
+     mess = "Пополните баланс токенов в /store"
+     await update.message.reply_text(mess)
 
 
 def main() -> None:
     """Start the bot."""
     # Create the Application and pass it your bot's token.
-    application = Application.builder().token("7941937010:AAHLKI5TcCzep7S-5zAuuSCYAShjZENALf0").build()
+    application = Application.builder().token("7707454906:AAEpkwgPJKm5T1IrtWlROIBV4Morlh-UHjk").build()
 
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("profile", profile))
     application.add_handler(CommandHandler("store", store))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message))
 
-
-    # Run the bot until the user presses Ctrl-C
+    # Run the bot until the user presses Ctrl-
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
