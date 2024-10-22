@@ -1,24 +1,14 @@
-#!/usr/bin/env python
-# pylint: disable=unused-argument
-# This program is dedicated to the public domain under the CC0 license.
-
-"""
-Simple Bot to reply to Telegram messages.
-
-First, a few handler functions are defined. Then, those functions are passed to
-the Application and registered at their respective places.
-Then, the bot is started and runs until we press Ctrl-C on the command line.
-
-Usage:
-Basic Echobot example, repeats messages.
-Press Ctrl-C on the command line or send a signal to the process to stop the
-bot.
-"""
 
 import logging
+import shelve
+from gc import callbacks
 
-from telegram import ForceReply, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from api import gpt, image
+from enum import Enum
+from telegram import ForceReply, Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackContext,
+                          CallbackQueryHandler)
+from config import BOT_KEY1
 
 # Enable logging
 logging.basicConfig(
@@ -30,66 +20,143 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-# Define a few command handlers. These usually take the two arguments update and
-# context.
+class ModelEnum(Enum):
+    gpt_text = 1
+    gpt_image = 2
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
     user = update.effective_user
-    user_id = user.full_name
+    user_id = user.id
+    user_name = user.full_name
     pandora = shelve.open("pandora")
     if str(user_id) not in pandora.keys():
         user_data = {
             "user_name": user_name,
             "subs": "Free",
-            "tokens": 0
+            "tokens": 1,
+            "model": ModelEnum.gpt_image.value
         }
         pandora[str(user_id)] = user_data
-    await update.message.reply_text(f"Добро пожаловать в GPT бота! {pandora[str(user_id)]["user_name"]})
+    await update.message.reply_text(f"Добро пожаловать в GPT бота! {pandora[str(user_id)]["user_name"]}")
     pandora.close()
 
-async def profile(update: Update, Context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = user = update.effective_user
-    user_id = str(user_id)
-    pandora = sheelter.open("pandora")
-    sudscription_type = pandora[str(user_id)]["subs"]
-    tokens = pandora[str(user_id)]["tokens"]
-    name = pandora[str(user_id)]["user_name"]
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = str(user.id)
+    pandora = shelve.open("pandora")
+    subscription_type = pandora[str(user_id)]["subs"]
+    tokens = pandora[str(user_id)]['tokens']
+    name = pandora[str(user_id)]['user_name']
     profile_text = (
-        f"это ваш профиль. \n"
-        f"имя: "
+        f"Это ваш профиль. \n"
+        f"Имя: {name}.\n"
         f"ID: {user_id}\n"
-        f"Подписка: {sudscription_type}\n\n"
-        f"Лимит: {tokens} token"
+        f"Подписка: {subscription_type}\n\n"
+        f"Лимиты: {tokens} token"
     )
-
+    pandora.close()
+    await update.message.reply_text(profile_text)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        "Для покупки токенов / store \n"
-        "Для просмотра информции о аккаунте /profil \n"
+    help_text = (
+        "Для покупи токенов /store \n"
+        "Для просмотра информации о вашем аккаунте /profile \n"
         "Для смены модели GPT /mode \n"
     )
-    """Send a message when the command /help is issued."""
     await update.message.reply_text(help_text)
 
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Echo the user message."""
-    await update.message.reply_text(int(message)) + 2)
+async def store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = str(user.id)
+    await update.message.reply_text("Добро пожаловать в магазин! Сколько токенов хочешь купить?")
+    pandora = shelve.open("pandora")
+    pandora[user_id]["tokens"] = 20
+    pandora[user_id]["subs"] = "VIP"
+    pandora.close()
 
-    def main() -> None:
-        """Start the bot."""
-        # Create the Application and pass it your bot's token.
-        application = Application.builder().token("7707454906:AAEpkwgPJKm5T1IrtWlROIBV4Morlh-UHjk").build()
+async def mode(update: Update, context: CallbackContext):
+    keyboard = [
+        [InlineKeyboardButton("GPT 3.5", callback_data="1")],
+        [InlineKeyboardButton("Stable Diffusion",callback_data="2")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Тут можно сменить модель нейросетей", reply_markup=reply_markup)
 
-        # on different commands - answer in Telegram
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("profile", profile))
-        application.add_handler(CommandHandler("help", help_command))
 
-        # on non command i.e message - echo the message on Telegram
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+async def button(update: Update, context: CallbackContext):
+    pandora = shelve.open("pandora")
+    query = update.callback_query
+    mode_gpt = query.data
+    user_id_chat = str(query.from_user.id)
+    user_model = pandora[user_id_chat]
+    user_model["model"] = int(mode_gpt)
+    pandora[user_id_chat]["model"] = int(mode_gpt)
+    selected_option = query.data
+    pandora.close()
 
-        # Run the bot until the user presses Ctrl-C
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    new_keyboard = [
+        [InlineKeyboardButton("GPT 3.5", callback_data="1")],
+        [InlineKeyboardButton("Stable Diffusion", callback_data="2")]
+    ]
 
-    if __name__ == "__main__":
-        main()
+    for row in new_keyboard:
+        for button in row:
+            if button.callback_data == selected_option:
+                new_button = InlineKeyboardButton(f"☑️ {button.text}", callback_data=button.callback_data)
+                row[row.index(button)] = new_button
+
+    reply_markup = InlineKeyboardMarkup(new_keyboard)
+    await query.edit_message_text(
+        text="Тут можно сменить модель нейросетей",
+        reply_markup=reply_markup
+    )
+
+
+async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    user_id = str(user.id)
+    pandora = shelve.open("pandora")
+    tokens = pandora[user_id]["tokens"]
+    gpt_model = pandora[user_id]["model"]
+    if tokens > 0:
+        if gpt_model == ModelEnum.gpt_text.value:
+            message = update.message.text
+            answer = gpt(message)
+            await update.message.reply_text(answer)
+        if gpt_model == ModelEnum.gpt_image.value:
+            message = update.message.text
+            answer = image(message)
+            await update.message.reply_photo(
+                photo=answer[0],
+                caption=answer[1]
+            )
+    else:
+        mess = "Пополните баланс токенов в /store"
+        await update.message.reply_text(mess)
+
+
+def main() -> None:
+    """Start the bot."""
+    # Create the Application and pass it your bot's token.
+    application = Application.builder().token(BOT_KEY1).build()
+
+    # on different commands - answer in Telegram
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("mode", mode))
+    application.add_handler(CallbackQueryHandler(button))
+    application.add_handler(CommandHandler("store", store))
+    application.add_handler(CommandHandler("profile", profile))
+    application.add_handler(CommandHandler("help", help_command))
+
+    # on non command i.e message - echo the message on Telegram
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_message))
+
+    # Run the bot until the user presses Ctrl-C
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()
+
